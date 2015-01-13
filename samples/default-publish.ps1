@@ -1,6 +1,8 @@
 [cmdletbinding(SupportsShouldProcess=$true)]
 param($publishProperties, $packOutput)
 
+# to learn more about this file visit http://go.microsoft.com/fwlink/?LinkId=524327
+
 function Get-VisualStudio2015InstallPath{
     [cmdletbinding()]
     param()
@@ -23,16 +25,15 @@ function Get-VisualStudio2015InstallPath{
 }
 
 $defaultPublishSettings = New-Object psobject -Property @{
-    LocalInstallDir = ("{0}Extensions\Microsoft\Web Tools\Publish\Scripts\Prerelease\" -f (Get-VisualStudio2015InstallPath))
+    LocalInstallDir = ("{0}Extensions\Microsoft\Web Tools\Publish\Scripts\1.0.0-pre\" -f (Get-VisualStudio2015InstallPath))
 }
 
 function Enable-PackageDownloader{
     [cmdletbinding()]
     param($toolsDir = "$env:LOCALAPPDATA\Microsoft\Web Tools\Publish\package-downloader\",
-        $pkgDownloaderDownloadUrl = 'https://raw.githubusercontent.com/sayedihashimi/publish-module/release/package-downloader.psm1')
+        $pkgDownloaderDownloadUrl = 'http://go.microsoft.com/fwlink/?LinkId=524325') # package-downloader.psm1
     process{
 		if(get-module package-downloader){
-			# TODO: we should check the version loaded and skip removing if the correct version is already loaded.
 			remove-module package-downloader | Out-Null
 		}
 
@@ -77,12 +78,12 @@ try{
 	if (!(Enable-PublishModule))
 	{
 		Enable-PackageDownloader
-		Enable-NuGetModule -name 'publish-module' -version '0.0.17-beta'
+		Enable-NuGetModule -name 'publish-module' -version '1.0.0-pre'
 	}
 
 	$whatifpassed = !($PSCmdlet.ShouldProcess($env:COMPUTERNAME,"publish"))
 
-	'Calling Publish-AspNet' | Write-Output
+	'Calling Publish-AspNet' | Write-Verbose
 	# call Publish-AspNet to perform the publish operation
 	Publish-AspNet -publishProperties $publishProperties -packOutput $packOutput -Verbose -WhatIf:$whatifpassed
 }

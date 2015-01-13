@@ -172,8 +172,8 @@ This will publish the folder based on the properties in $publishProperties
 .EXAMPLE
  Publish-AspNet -packOutput $packOutput -publishProperties @{
      'WebPublishMethod'='MSDeploy'
-     'MSDeployServiceURL'='sayedkdemo2.scm.azurewebsites.net:443';`
-     'DeployIisAppPath'='sayedkdemo2';'Username'='$sayedkdemo2';'Password'="$env:PublishPwd"}
+     'MSDeployServiceURL'='contoso.scm.azurewebsites.net:443';`
+     'DeployIisAppPath'='contoso';'Username'='$contoso';'Password'="$env:PublishPwd"}
 
 .EXAMPLE
 Publish-AspNet -packOutput $packOutput -publishProperties @{
@@ -184,8 +184,8 @@ Publish-AspNet -packOutput $packOutput -publishProperties @{
 .EXAMPLE
 Publish-AspNet -packOutput $packOutput -publishProperties @{
      'WebPublishMethod'='MSDeploy'
-     'MSDeployServiceURL'='sayedkdemo2.scm.azurewebsites.net:443';`
-'DeployIisAppPath'='sayedkdemo2';'Username'='$sayedkdemo2';'Password'="$env:PublishPwd"
+     'MSDeployServiceURL'='contoso.scm.azurewebsites.net:443';`
+'DeployIisAppPath'='contoso';'Username'='$contoso';'Password'="$env:PublishPwd"
  	'ExcludeFiles'=@(
 		@{'absolutepath'='wwwroot\\test.txt'},
 		@{'absolutepath'='wwwroot\\_references.js'}
@@ -235,6 +235,10 @@ function Publish-AspNet{
             $publishProperties['WebPublishMethod'] = $publishProperties['WebPublishMethodOverride']
         }
 
+        if(!([System.IO.Path]::IsPathRooted($packOutput))){
+            $packOutput = [System.IO.Path]::GetFullPath((Join-Path $pwd $packOutput))
+        }
+
         $pubMethod = $publishProperties['WebPublishMethod']
         'Publishing with publish method [{0}]' -f $pubMethod | Write-Output
 
@@ -258,15 +262,14 @@ function Publish-AspNetMSDeploy{
 
             <#
             "C:\Program Files (x86)\IIS\Microsoft Web Deploy V3\msdeploy.exe" 
-                -source:IisApp='C:\Users\vramak\AppData\Local\Temp\AspNetPublish\WebApplication184-93\wwwroot' 
-                -dest:IisApp='vramak4',ComputerName='https://vramak4.scm.azurewebsites.net/msdeploy.axd',UserName='$vramak4',Password='<PWD>',IncludeAcls='False',AuthType='Basic' 
+                -source:IisApp='C:\Users\contoso\AppData\Local\Temp\AspNetPublish\WebApplication1\wwwroot' 
+                -dest:IisApp='vramak4',ComputerName='https://contoso.scm.azurewebsites.net/msdeploy.axd',UserName='$contoso',Password='<PWD>',IncludeAcls='False',AuthType='Basic' 
                 -verb:sync 
                 -enableRule:DoNotDeleteRule 
                 -enableLink:contentLibExtension 
                 -retryAttempts=2 
                 -userAgent="VS14.0:PublishDialog:WTE14.0.51027.0"
             #>
-            # TODO: Get wwwroot value from $publishProperties
 
             $sharedArgs = GetInternal-SharedMSDeployParametersFrom -publishProperties $publishProperties 
 
@@ -337,10 +340,17 @@ function Publish-AspNetFileSystem{
         $packOutput
     )
     process{
-        $pubOut = $publishProperties['publishUrl']
+        [ValidateNotNullOrEmpty()]$pubOut = $publishProperties['publishUrl']
+        
+        # if it's a relative path then update it to a full path
+        if(!([System.IO.Path]::IsPathRooted($pubOut))){
+            $pubOut = [System.IO.Path]::GetFullPath((Join-Path $pwd $pubOut))
+            $publishProperties['publishUrl'] = "$pubOut"
+        }
+
         'Publishing files to {0}' -f $pubOut | Write-Output
 
-        # we can use msdeploy.exe because it supports incremental publish/skips/replacements/etc
+        # we use msdeploy.exe because it supports incremental publish/skips/replacements/etc
         # msdeploy.exe -verb:sync -source:contentPath='C:\srcpath' -dest:contentPath='c:\destpath'
         
         $sharedArgs = GetInternal-SharedMSDeployParametersFrom -publishProperties $publishProperties
@@ -356,35 +366,36 @@ function Publish-AspNetFileSystem{
     }
 }
 
-function Get-MSDeploy {
+function Get-MSDeploy{
     [cmdletbinding()]
     param()
     process{
-        $msdInstallLoc = $env:MSDeployPath
-        if(!($msdInstallLoc)) {
-        # TODO: Get this from HKLM SOFTWARE\Microsoft\IIS Extensions\MSDeploy See MSDeploy VS task for implementation
-            $progFilesFolder = (Get-ChildItem env:"ProgramFiles").Value
-            $msdLocToCheck = @()
-            $msdLocToCheck += ("{0}\IIS\Microsoft Web Deploy V3\msdeploy.exe" -f $progFilesFolder)
-            $msdLocToCheck += ("{0}\IIS\Microsoft Web Deploy V2\msdeploy.exe" -f $progFilesFolder)
-            $msdLocToCheck += ("{0}\IIS\Microsoft Web Deploy\msdeploy.exe" -f $progFilesFolder)
-           
-            foreach($locToCheck in $msdLocToCheck) {
-                "Looking for msdeploy.exe at [{0}]" -f $locToCheck | Write-Verbose | Out-Null
-                if(Test-Path $locToCheck) {
-                    $msdInstallLoc = $locToCheck
-                    break;
-                }
-            }        
-        }
-    
-        if(!$msdInstallLoc){
+		$installPath = $env:msdeployinstallpath
+
+		if(!$installPath)
+		{
+			$keysToCheck = @('hklm:\SOFTWARE\Microsoft\IIS Extensions\MSDeploy\3','hklm:\SOFTWARE\Microsoft\IIS Extensions\MSDeploy\2','hklm:\SOFTWARE\Microsoft\IIS Extensions\MSDeploy\1')
+
+			foreach($keyToCheck in $keysToCheck){
+				if(Test-Path $keyToCheck){
+					$installPath = (Get-itemproperty $keyToCheck -Name InstallPath | select -ExpandProperty InstallPath)
+				}
+
+				if($installPath){
+					break;
+				}
+			}
+		}
+
+        if(!$installPath){
             throw "Unable to find msdeploy.exe, please install it and try again"
         }
-    
-        "Found msdeploy.exe at [{0}]" -f $msdInstallLoc | Write-Verbose | Out-Null
 
-        return $msdInstallLoc
+        [string]$msdInstallLoc = (join-path $installPath 'msdeploy.exe')
+
+        "Found msdeploy.exe at [{0}]" -f $msdInstallLoc | Write-Verbose
+        
+        $msdInstallLoc        
     }
 }
 
@@ -392,8 +403,8 @@ function Get-MSDeployFullUrlFor{
     [cmdletbinding()]
     param($msdeployServiceUrl)
     process{
-        # Convert sayedkdemo.scm.azurewebsites.net:443 to https://sayedkdemo.scm.azurewebsites.net/msdeploy.axd
-        # TODO: This needs to be improved, it only works with Azure Websites. We have code for this.
+        # Convert contoso.scm.azurewebsites.net:443 to https://contoso.scm.azurewebsites.net/msdeploy.axd
+        # TODO: This needs to be improved, it only works with Azure Websites currently.
         'https://{0}/msdeploy.axd' -f $msdeployServiceUrl.TrimEnd(':443')
     }
 }
